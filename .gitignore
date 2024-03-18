@@ -1,0 +1,29 @@
+###> general ###
+/vendor/
+.idea
+###< general ###
+
+###> symfony/framework-bundle ###
+/var/
+.env.local
+.env.test
+.env.local.php
+.env.*.php
+###< symfony/framework-bundle ###
+
+###> friendsofphp/php-cs-fixer ###
+/.php-cs-fixer.php
+/.php-cs-fixer.cache
+###< friendsofphp/php-cs-fixer ###
+
+###> docker/garbage ###
+.bash_history
+.mysql_history
+.composer
+.gitconfig
+###< docker/garbage ###
+
+###> phpunit/phpunit ###
+.phpunit.cache
+.phpunit.result.cache
+###< phpunit/phpunit ###

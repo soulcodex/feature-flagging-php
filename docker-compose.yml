@@ -1,0 +1,34 @@
+version: "3.7"
+
+services:
+  webserver:
+    container_name: 'feature-flag-webserver'
+    build:
+      context: ./docker/webserver
+      dockerfile: Dockerfile
+      args:
+        PHP_VERSION: 8.2
+        HOST_UID: ${CURRENT_UID:-1000}
+    restart: 'always'
+    ports:
+      - "9001:80"
+    links:
+      - redis
+    environment:
+      - PHP_IDE_CONFIG=serverName=localhost
+      - PHP_VERSION=8.2
+    volumes:
+      - ./:/var/www/html
+      - ./docker/config/php/php.ini:/usr/local/etc/php/php.ini
+      - ./docker/config/vhosts:/etc/apache2/sites-enabled
+      - ./var/log/docker/apache2:/var/log/apache2
+      - ./var/log/docker/xdebug:/var/log/xdebug
+  redis:
+    image: redis:latest
+    container_name: 'feature-flag-redis'
+    restart: 'always'
+    ports:
+      - "6379:6379"
+    tmpfs:
+      - /data
+    command: redis-server --appendonly yes
