@@ -16,6 +16,11 @@ final class ErrorStoringUser extends DomainException
         parent::__construct($message, $code, $previous);
     }
 
+    public static function withUserId(UserId $id): self
+    {
+        return new self(self::MESSAGE, 0, null, ['user_id' => $id->id]);
+    }
+
     public static function withUserIdAndPrevious(UserId $id, Throwable $previous): self
     {
         return new self(self::MESSAGE, 0, $previous, ['user_id' => $id->id]);

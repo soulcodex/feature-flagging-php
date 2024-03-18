@@ -8,6 +8,10 @@ use DI\Container;
 use Flagsmith\Flagsmith;
 use Flagsmith\Models\DefaultFlag;
 use Flagsmith\Utils\Retry;
+use League\Tactician\Container\ContainerLocator;
+use League\Tactician\Handler\CommandHandlerMiddleware;
+use League\Tactician\Handler\CommandNameExtractor\ClassNameExtractor;
+use League\Tactician\Handler\MethodNameInflector\InvokeInflector;
 use Monolog\Handler\StreamHandler;
 use Monolog\Level;
 use Monolog\Logger;
@@ -17,15 +21,21 @@ use Predis\ClientInterface;
 use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
 use Slim\App;
+use Soulcodex\App\DependencyInjection\Common\Bus\Command\CommandBusRegisterer;
 use Soulcodex\App\DependencyInjection\Common\Override\DependencyOverride;
 use Soulcodex\App\DependencyInjection\Common\Override\DependencyOverrides;
-use Soulcodex\App\DependencyInjection\User\UserDI;
-use Soulcodex\App\Shared\Domain\Flag\FlagFetcher;
+use Soulcodex\App\DependencyInjection\User\UserDependencyInjection;
+use Soulcodex\App\Shared\Domain\Bus\Command\CommandBus;
+use Soulcodex\App\Shared\Domain\Flag\FlagRetriever as Retriever;
+use Soulcodex\App\Shared\Domain\Flag\FlagUpdater as Updater;
+use Soulcodex\App\Shared\Infrastructure\Bus\TacticianCommandBus;
 use Soulcodex\App\Shared\Infrastructure\Controller\Flag\SearchFlagByNameController;
+use Soulcodex\App\Shared\Infrastructure\Controller\Flag\UpdateParameterByNameController;
 use Soulcodex\App\Shared\Infrastructure\Controller\IndexController;
 use Soulcodex\App\Shared\Infrastructure\Flag\FlagRepository;
 use Soulcodex\App\Shared\Infrastructure\Flag\FlagRetriever;
 use Soulcodex\App\Shared\Infrastructure\Flag\FlagsmithFlagRepository;
+use Soulcodex\App\Shared\Infrastructure\Flag\FlagUpdater;
 use Soulcodex\App\Shared\Infrastructure\Flag\RedisFlagRepository;
 use Soulcodex\App\Shared\Infrastructure\Flag\UnleashFlagRepository;
 use Soulcodex\App\Shared\Infrastructure\Ulid\RandomUlidProvider;
@@ -34,21 +44,19 @@ use Symfony\Component\Cache\Psr16Cache;
 use Unleash\Client\Unleash;
 use Unleash\Client\UnleashBuilder;
 
-final class DependencyInjectionCommon
+final class DependencyInjection
 {
-    private array $modules = [
-        UserDI::class
-    ];
-
-    public final function init(): ContainerInterface
+    public final function init(?ContainerInterface $container = null): ContainerInterface
     {
-        $container = new Container();
+        $container = $container ?? new Container();
 
         $this->initCommon($container);
 
-        foreach ($this->modules as $module) {
-            $module::init($container);
+        foreach (require_once 'modules.php' as $module) {
+            $module::bootstrap($container)->init();
         }
+
+        $this->initBuses($container);
 
         return $container;
     }
@@ -56,12 +64,7 @@ final class DependencyInjectionCommon
     public final function initWithOverrides(DependencyOverrides $overrides): ContainerInterface
     {
         $container = new Container();
-
-        $this->initCommon($container);
-
-        foreach ($this->modules as $module) {
-            $module::init($container);
-        }
+        $container = $this->init($container);
 
         $overrides->each(
             fn(DependencyOverride $override) => $container->set(
@@ -75,16 +78,22 @@ final class DependencyInjectionCommon
 
     public function run(App $app): void
     {
-        $this->initCommonRoutes($app);
+        $this->bootstrapRouter($app);
+
+        $app->addBodyParsingMiddleware();
+        $app->addErrorMiddleware(true, true, true);
 
         $app->run();
     }
 
-    private function initCommonRoutes(App $app): void
+    private function bootstrapRouter(App $app): void
     {
         $app->get('/', [IndexController::class, '__invoke']);
 
         $app->get('/feature-flags/{flagName}', [SearchFlagByNameController::class, '__invoke']);
+        $app->patch('/feature-flags/{flagName}', [UpdateParameterByNameController::class, '__invoke']);
+
+        UserDependencyInjection::registerRoutes()($app);
     }
 
     private function initCommon(Container $container): void
@@ -124,11 +133,14 @@ final class DependencyInjectionCommon
             return new UnleashFlagRepository($unleashClient);
         });
 
-        $container->set(FlagFetcher::class, function () use ($container) {
-            return new FlagRetriever(
-                $container->get(FlagRepository::class),
-                ['new_user_persistence_activated' => false]
-            );
+        $defaultFlags = ['new_user_persistence_activated' => false];
+
+        $container->set(Retriever::class, function () use ($container, $defaultFlags) {
+            return new FlagRetriever($container->get(FlagRepository::class), $defaultFlags);
+        });
+
+        $container->set(Updater::class, function () use ($container, $defaultFlags) {
+            return new FlagUpdater($container->get(FlagRepository::class), $defaultFlags);
         });
     }
 
@@ -155,11 +167,14 @@ final class DependencyInjectionCommon
             return new FlagsmithFlagRepository($flagsmithClient);
         });
 
-        $container->set(FlagFetcher::class, function () use ($container) {
-            return new FlagRetriever(
-                $container->get(FlagRepository::class),
-                ['new_user_persistence_activated' => false]
-            );
+        $defaultFlags = ['new_user_persistence_activated' => false];
+
+        $container->set(Retriever::class, function () use ($container, $defaultFlags) {
+            return new FlagRetriever($container->get(FlagRepository::class), $defaultFlags);
+        });
+
+        $container->set(Updater::class, function () use ($container, $defaultFlags) {
+            return new FlagUpdater($container->get(FlagRepository::class), $defaultFlags);
         });
     }
 
@@ -170,11 +185,14 @@ final class DependencyInjectionCommon
             return new RedisFlagRepository($redisClient);
         });
 
-        $container->set(FlagFetcher::class, function () use ($container) {
-            return new FlagRetriever(
-                $container->get(FlagRepository::class),
-                ['new_user_persistence_activated' => false]
-            );
+        $defaultFlags = ['new_user_persistence_activated' => false];
+
+        $container->set(Retriever::class, function () use ($container, $defaultFlags) {
+            return new FlagRetriever($container->get(FlagRepository::class), $defaultFlags);
+        });
+
+        $container->set(Updater::class, function () use ($container, $defaultFlags) {
+            return new FlagUpdater($container->get(FlagRepository::class), $defaultFlags);
         });
     }
 
@@ -183,13 +201,28 @@ final class DependencyInjectionCommon
         $container->set(LoggerInterface::class, function () {
             $logger = new Logger("feature-flagging-v1");
 
-            $processor = new UidProcessor();
+            $processor = new UidProcessor(32);
             $logger->pushProcessor($processor);
 
             $handler = new StreamHandler("php://stdout", Level::Warning);
             $logger->pushHandler($handler);
 
             return $logger;
+        });
+    }
+
+    private function initBuses(Container $container): void
+    {
+        $container->set(CommandBus::class, function () use ($container) {
+            $handlers = $container->get(CommandBusRegisterer::class)->handlers();
+
+            $handlerMiddleware = new CommandHandlerMiddleware(
+                new ClassNameExtractor(),
+                new ContainerLocator($container, $handlers),
+                new InvokeInflector()
+            );
+
+            return new TacticianCommandBus(new \League\Tactician\CommandBus([$handlerMiddleware]));
         });
     }
 }

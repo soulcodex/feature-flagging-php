@@ -3,13 +3,14 @@ version: "3.7"
 services:
   webserver:
     container_name: 'feature-flag-webserver'
+    extra_hosts:
+      - host.docker.internal:host-gateway
     build:
       context: ./docker/webserver
       dockerfile: Dockerfile
       args:
         PHP_VERSION: 8.2
         HOST_UID: ${CURRENT_UID:-1000}
-    restart: 'always'
     ports:
       - "9001:80"
     links:
@@ -25,8 +26,7 @@ services:
       - ./var/log/docker/xdebug:/var/log/xdebug
   redis:
     image: redis:latest
-    container_name: 'feature-flag-redis'
-    restart: 'always'
+    container_name: 'feature-flag-redis-php'
     ports:
       - "6379:6379"
     tmpfs:

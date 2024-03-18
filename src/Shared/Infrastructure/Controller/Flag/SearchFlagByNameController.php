@@ -3,15 +3,15 @@ declare(strict_types=1);
 
 namespace Soulcodex\App\Shared\Infrastructure\Controller\Flag;
 
-use Soulcodex\App\Shared\Domain\Flag\FlagFetcher;
-use Soulcodex\App\Shared\Domain\Flag\FlagName;
 use Psr\Http\Message\ResponseInterface as Response;
+use Soulcodex\App\Shared\Domain\Flag\FlagName;
 use Soulcodex\App\Shared\Domain\Flag\FlagNotFound;
+use Soulcodex\App\Shared\Domain\Flag\FlagRetriever;
 use Ulid\Ulid;
 
 final readonly class SearchFlagByNameController
 {
-    public function __construct(private FlagFetcher $fetcher)
+    public function __construct(private FlagRetriever $fetcher)
     {
     }
 
@@ -34,13 +34,13 @@ final readonly class SearchFlagByNameController
             return $response
                 ->withHeader('Content-Type', 'application/json')
                 ->withStatus(200);
-        } catch (FlagNotFound $flagNotFound) {
+        } catch (FlagNotFound $e) {
             $response->getBody()->write(json_encode([
                 'errors' => [
                     [
                         'id' => (new Ulid())->generate(),
-                        'details' => $flagNotFound->getMessage(),
-                        'metadata' => $flagNotFound->context()
+                        'details' => $e->getMessage(),
+                        'metadata' => $e->context()
                     ]
                 ]
             ]));

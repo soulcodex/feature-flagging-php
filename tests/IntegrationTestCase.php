@@ -12,7 +12,7 @@ use Slim\Psr7\Request;
 use Slim\Psr7\Uri;
 use Soulcodex\App\DependencyInjection\Common\Override\DependencyOverride;
 use Soulcodex\App\DependencyInjection\Common\Override\DependencyOverrides;
-use Soulcodex\App\DependencyInjection\DependencyInjectionCommon;
+use Soulcodex\App\DependencyInjection\DependencyInjection;
 use Soulcodex\App\Shared\Domain\Ulid\UlidProvider;
 use Soulcodex\App\Shared\Infrastructure\Ulid\FixedUlidProvider;
 
@@ -20,9 +20,8 @@ class IntegrationTestCase extends TestCase
 {
     protected function getAppInstance(): SlimApp
     {
-        $commonDi = new DependencyInjectionCommon();
         $overrides = DependencyOverrides::create($this->overrideUlidProvider());
-        return App::create($commonDi->initWithOverrides($overrides));
+        return App::create((new DependencyInjection())->initWithOverrides($overrides));
     }
 
     protected function createRequest(

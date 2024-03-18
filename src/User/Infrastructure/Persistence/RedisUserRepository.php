@@ -18,6 +18,7 @@ use function Lambdish\phunctional\get;
 final readonly class RedisUserRepository implements UserRepository
 {
     private const PREFIX = 'user::';
+    private const ERROR_STORING = 0;
 
     public function __construct(private RedisClient $client)
     {
@@ -26,11 +27,15 @@ final readonly class RedisUserRepository implements UserRepository
     public function save(User $user): void
     {
         try {
-            $this->client->transaction(function (MultiExec $tx) use ($user) {
+            $transactions = $this->client->transaction(function (MultiExec $tx) use ($user) {
                 foreach ($this->fromDomain($user) as $userAttribute => $value) {
                     $tx->hset($this->keyByEmail($user->email()), $userAttribute, $value);
                 }
-            })->execute();
+            });
+
+            if (in_array(self::ERROR_STORING, $transactions)) {
+                throw ErrorStoringUser::withUserId($user->id());
+            }
         } catch (PredisException $e) {
             throw ErrorStoringUser::withUserIdAndPrevious($user->id(), $e);
         }
